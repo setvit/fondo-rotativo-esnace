@@ -1,0 +1,104 @@
+=== 1. TABLAS EXISTENTES ===
+cache
+cache_locks
+cierres_mensuales
+comisiones
+control_fondo
+control_fondo_global
+cotizaciones
+cuadros_comparativos
+documentos
+failed_jobs
+fondos_repartos
+job_batches
+jobs
+liquidacion_comision
+liquidaciones
+migrations
+model_has_permissions
+model_has_roles
+movimientos_fondos
+notificaciones
+pasajeros
+pasajes
+password_reset_tokens
+permissions
+role_has_permissions
+roles
+sessions
+users
+
+=== 2. ESTRUCTURA COMISIONES ===
+id | bigint unsigned | NO | PRI | 
+codigo | varchar(50) | NO | UNI | 
+destino | varchar(100) | NO |  | 
+motivo | text | NO |  | 
+tipo | enum('NACIONAL','INTERNACIONAL') | NO |  | 
+fecha_salida | date | NO |  | 
+fecha_retorno | date | NO |  | 
+estado | enum('CREADA','CON_PASAJEROS','COTIZANDO','CUADRO_BORRADOR','EN_LOGISTICA','RECHAZADA','APROBADA','LISTA_COMPRA','COMPRADA','EN_EJECUCION','EN_CIERRE','DOCUMENTADA','LIQUIDADA','CERRADA') | NO |  | CREADA
+estado_documental | enum('CREADA','COTIZADA','CUADRO_PENDIENTE','CUADRO_PENDIENTE_APROBACION','CUADRO_APROBADO','CUADRO_RECHAZADO','PASAJE_COMPRADO','LIQUIDADA','RECHAZADA') | YES |  | CREADA
+total_valor_pasajes | decimal(10,2) | NO |  | 0.00
+puede_comprar | tinyint(1) | NO |  | 0
+custodio_id | bigint unsigned | NO | MUL | 
+created_at | timestamp | YES |  | 
+updated_at | timestamp | YES |  | 
+
+=== 3. ESTRUCTURA PASAJEROS ===
+id | bigint unsigned
+comision_id | bigint unsigned
+nombre | varchar(150)
+cedula | varchar(10)
+cargo | varchar(150)
+reparto | enum('COOPNA','CODESC','CUINMA','COAVNA','COMSUB','COMACO','COGUAR','COMCUB','COMSUP','DIGEIM','ESNACE','ESNAFA','JEM','DIBIEN','DIRNEA')
+created_at | timestamp
+updated_at | timestamp
+
+=== 4. ESTRUCTURA COTIZACIONES ===
+id | bigint unsigned
+comision_id | bigint unsigned
+nro_proforma | varchar(50)
+ruc_proveedor | varchar(13)
+nombre_proveedor | varchar(150)
+tipo_proveedor | enum('AEROLINEA','AGENCIA')
+detalle_pasajes | text
+valor_total | decimal(10,2)
+fecha_cotizacion | date
+archivo_proforma | varchar(255)
+registrado_por | bigint unsigned
+created_at | timestamp
+updated_at | timestamp
+
+=== 5. ESTRUCTURA PASAJES_COMPRADOS ===
+
+=== 6. MIGRACIONES COMISIONES ===
+Archivo: /opt/homebrew/var/www/fondo-rotativo-esnace/database/migrations/2026_06_25_133524_add_motivo_to_comisiones_table.php
+Archivo: /opt/homebrew/var/www/fondo-rotativo-esnace/database/migrations/2026_07_04_133051_add_motivo_to_comisiones_table.php
+
+=== 7. MODELO Comision ===
+<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+
+class Comision extends Model {
+    protected $table = 'comisiones';
+    protected $fillable = ['codigo','destino','motivo','tipo','fecha_salida','fecha_retorno','estado','estado_documental','total_valor_pasajes','puede_comprar','custodio_id'];
+    protected $casts = ['fecha_salida'=>'date','fecha_retorno'=>'date','total_valor_pasajes'=>'decimal:2','puede_comprar'=>'boolean'];
+    
+    public function custodio() { return $this->belongsTo(User::class, 'custodio_id'); }
+    public function pasajeros() { return $this->hasMany(Pasajero::class, 'comision_id'); }
+    public function cotizaciones() { return $this->hasMany(Cotizacion::class, 'comision_id'); }
+    public function cuadroComparativo() { return $this->hasOne(CuadroComparativo::class, 'comision_id'); }
+    public function pasajes() { return $this->hasMany(Pasaje::class, 'comision_id'); }
+    public function documentos() { return $this->hasMany(Documento::class, 'comision_id'); }
+    
+    public function liquidaciones() {
+        return $this->belongsToMany(Liquidacion::class, 'liquidacion_comision', 'comision_id', 'liquidacion_id')->withPivot('valor')->withTimestamps();
+    }
+    
+    public function estaLiquidada(): bool {
+        return $this->estado_documental === 'LIQUIDADA';
+    }
+}
+
+=== 8. RUTAS COMISIONES ===

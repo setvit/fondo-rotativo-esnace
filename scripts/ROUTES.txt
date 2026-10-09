@@ -1,0 +1,8 @@
+Route::prefix('liquidaciones')->name('liquidaciones.')->group(function(){
+    Route::get('/', [App\Http\Controllers\LiquidacionController::class, 'index'])->name('index');
+    Route::get('/create', [App\Http\Controllers\LiquidacionController::class, 'create'])->name('create');
+    Route::post('/', [App\Http\Controllers\LiquidacionController::class, 'store'])->name('store');
+    Route::get('/{id}', [App\Http\Controllers\LiquidacionController::class, 'show'])->name('show');
+    Route::get('/{id}/pdf', [App\Http\Controllers\LiquidacionController::class, 'pdf'])->name('pdf');
+    Route::get('/{id}/pdf-desglosado', [App\Http\Controllers\LiquidacionController::class, 'pdf'])->name('pdf-desglosado');
+});

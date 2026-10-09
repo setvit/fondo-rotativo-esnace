@@ -1,0 +1,9 @@
+// Agregar en routes/web.php
+Route::middleware(['auth'])->group(function(){
+    Route::get('/liquidaciones', [LiquidacionController::class,'index'])->name('liquidaciones.index');
+    Route::get('/liquidaciones/create', [LiquidacionController::class,'create'])->name('liquidaciones.create');
+    Route::post('/liquidaciones', [LiquidacionController::class,'store'])->name('liquidaciones.store');
+    Route::get('/liquidaciones/{id}', [LiquidacionController::class,'show'])->name('liquidaciones.show');
+    Route::get('/liquidaciones/{id}/pdf', [LiquidacionController::class,'pdf'])->name('liquidaciones.pdf');
+    Route::post('/liquidaciones/{id}/reposicion', [LiquidacionController::class,'reposicion'])->name('liquidaciones.reposicion');
+});
