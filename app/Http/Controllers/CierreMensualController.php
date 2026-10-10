@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 use App\Models\CierreMensual;
+use App\Models\Comision;
 use Illuminate\Http\Request;
 use Barryvdh\DomPDF\Facade\Pdf;
 
@@ -8,42 +9,108 @@ class CierreMensualController extends Controller
 {
     public function index(){
         $cierres = CierreMensual::orderBy('fecha_cierre','desc')->get();
-        $saldoInicial = 10000.00; $comisionTarjeta = 4.37; $ivaTarjeta = 0.66; $totalTarjeta = 5.03;
-        $liquidadas = 803.85; $sinPases = 8759.57; $totalComisiones = 9563.42;
-        $totalConTarjetaSinIva = 9567.79; $totalConTarjetaConIva = 9568.45; $saldoFinal = 431.55;
-        return view('cierres.index', compact('cierres','saldoInicial','comisionTarjeta','ivaTarjeta','totalTarjeta','liquidadas','sinPases','totalComisiones','totalConTarjetaSinIva','totalConTarjetaConIva','saldoFinal'));
+        // Para preview del formulario
+        $ultimo = $cierres->first();
+        $saldoSugerido = $ultimo ? $ultimo->saldo_final_banco : 9999.34;
+        return view('cierres.index', compact('cierres','saldoSugerido'));
     }
     
     public function store(Request $request){
-        $periodo = $request->input('periodo') ?? '2026-09';
-        $cierre = CierreMensual::where('periodo_codigo','ESNACE-COOPNA-FR-'.$periodo)->first();
-        if(!$cierre){
-            $cierre = CierreMensual::create([
-                'periodo'=>'SEPTIEMBRE 2026 - CONCILIADO BANECUADOR EXACTO - 7 TRANSACCIONES',
-                'periodo_codigo'=>'ESNACE-COOPNA-FR-'.$periodo,
-                'codigo'=>'ESNACE-COOPNA-FR-'.$periodo,
-                'fecha_cierre'=>'2026-10-06',
-                'saldo_inicial_banco'=>10000.00,
-                'total_debitos_banco'=>9563.42,
-                'saldo_final_banco'=>431.55,
-                'comision_bancaria'=>4.37,
-                'valor_a_reponer'=>9568.45,
-                'num_transacciones'=>7,
-                'detalle_transacciones'=>[],
-                'cuenta_bancaria'=>'3-00167809-0',
-                'usuario_id'=>auth()->id() ?? 1,
-                'observaciones'=>'BanEcuador: $10,000.00 inicial - $4.37 comisión tarjeta - $0.66 IVA - $2,193.09 ALICANTE - $318.55 LIQUIDADA - $5,438.70 BUSAN pasaje - $350 BUSAN tasas - $777.78 LIMA - $485.30 LIQUIDADA = $431.55 saldo final. Total transacciones 7.'
-            ]);
-        }
-        return redirect()->to('/cierres-mensuales/'.$cierre->id)->with('success','Cierre generado exacto BanEcuador - $9,567.79 + IVA $0.66 = $9,568.45 - Saldo $431.55');
+        $request->validate([
+            'periodo' => 'required|string',
+            'mes' => 'required|integer|min:1|max:12',
+            'anio' => 'required|integer|min:2024|max:2030',
+            'fecha_cierre' => 'required|date',
+            'cuenta_bancaria' => 'required|string',
+            'saldo_inicial_banco' => 'required|numeric|min:0',
+            'comision_bancaria' => 'nullable|numeric|min:0',
+            'transacciones' => 'required|array|min:1',
+            'transacciones.*.fecha' => 'required|date',
+            'transacciones.*.descripcion' => 'required|string|max:500',
+            'transacciones.*.referencia' => 'required|string|max:100',
+            'transacciones.*.debito' => 'required|numeric|min:0',
+        ]);
+
+        $transacciones = $request->transacciones;
+        // Ordenar por fecha asc como BanEcuador
+        usort($transacciones, fn($a,$b) => strtotime($a['fecha']) <=> strtotime($b['fecha']));
+
+        $totalDebitos = collect($transacciones)->sum('debito');
+        $totalDebitosSinTarjeta = $totalDebitos - ($request->comision_bancaria ?? 0);
+        
+        $saldoFinal = $request->saldo_inicial_banco - $totalDebitos;
+        $valorReponer = 10000 - $saldoFinal; // Fondo teórico 10k - saldo final
+        $valorReponerSoloComisiones = $valorReponer - ($request->comision_bancaria ?? 0);
+
+        // Código automático ESNACE-COOPNA-FR-2026-09
+        $codigo = 'ESNACE-COOPNA-FR-'.$request->anio.'-'.str_pad($request->mes,2,'0',STR_PAD_LEFT);
+
+        // Evitar duplicado - si ya existe actualizar
+        $cierre = CierreMensual::updateOrCreate(
+            ['codigo' => $codigo],
+            [
+                'periodo' => strtoupper($request->periodo),
+                'periodo_codigo' => $codigo,
+                'fecha_cierre' => $request->fecha_cierre,
+                'cuenta_bancaria' => $request->cuenta_bancaria,
+                'fondo_asignado' => 10000,
+                'fondo_teorico' => 10000,
+                'saldo_inicial_banco' => $request->saldo_inicial_banco,
+                'total_debitos_banco' => $totalDebitos,
+                'saldo_final_banco' => $saldoFinal,
+                'saldo_final_conciliado' => $saldoFinal,
+                'comision_bancaria' => $request->comision_bancaria ?? 5.03,
+                'valor_a_reponer' => $valorReponer,
+                'total_ejecutado' => $totalDebitosSinTarjeta,
+                'total_liquidadas' => 0, // se calcula en show
+                'total_por_liquidar' => 0,
+                'cantidad_liquidadas' => 0,
+                'cantidad_por_liquidar' => 0,
+                'num_transacciones' => count($transacciones),
+                'detalle_transacciones' => $transacciones,
+                'usuario_id' => auth()->id() ?? 1,
+                'observaciones' => $request->observaciones ?? 'Cierre conciliado exacto BanEcuador - '.count($transacciones).' transacciones - $'.number_format($totalDebitos,2).' - Saldo $'.number_format($saldoFinal,2),
+                'estado' => 'CERRADO'
+            ]
+        );
+
+        return redirect()->to('/cierres-mensuales/'.$cierre->id)->with('success','✅ Cierre '.$codigo.' generado - '.count($transacciones).' transacciones - Total $'.number_format($totalDebitos,2).' - Saldo Final $'.number_format($saldoFinal,2).' - A Reponer $'.number_format($valorReponer,2));
     }
     
-    public function show($id){ $cierre = CierreMensual::findOrFail($id); return view('cierres.show', compact('cierre')); }
+    public function show($id){ 
+        $cierre = CierreMensual::findOrFail($id);
+        // Comisiones para este periodo (si existen)
+        try {
+            $liquidadas = Comision::where('estado','LIQUIDADA')
+                ->whereMonth('fecha_liquidacion', $cierre->fecha_cierre->month ?? 9)
+                ->whereYear('fecha_liquidacion', $cierre->fecha_cierre->year ?? 2026)
+                ->get();
+            $porLiquidar = Comision::whereIn('estado',['FACTURADO','POR_LIQUIDAR','CUADRO_APROBADO','APROBADO'])
+                ->whereMonth('created_at', $cierre->fecha_cierre->month ?? 9)
+                ->get();
+        } catch(\Exception $e){
+            $liquidadas = collect([]);
+            $porLiquidar = collect([]);
+        }
+        return view('cierres.show', compact('cierre','liquidadas','porLiquidar')); 
+    }
     
     public function pdf($id){ 
         $cierre = CierreMensual::findOrFail($id);
-        // Genera PDF bien distribuido en varias páginas
-        $pdf = Pdf::loadView('pdf.cierre_mensual', compact('cierre'))->setPaper('a4','portrait');
-        return $pdf->download('Cierre_Mensual_SEPTIEMBRE_2026_Conciliado_BanEcuador_431.55.pdf');
+        try {
+            $liquidadas = Comision::where('estado','LIQUIDADA')->take(5)->get();
+            $porLiquidar = Comision::whereIn('estado',['FACTURADO','POR_LIQUIDAR'])->take(5)->get();
+        } catch(\Exception $e){
+            $liquidadas = collect([]);
+            $porLiquidar = collect([]);
+        }
+        $pdf = Pdf::loadView('cierres.pdf_oficial', compact('cierre','liquidadas','porLiquidar'))->setPaper('a4','portrait');
+        return $pdf->stream('Cierre_Mensual_'.$cierre->codigo.'_Conciliado_BanEcuador_'.number_format($cierre->saldo_final_banco,2).'.pdf');
+    }
+
+    public function destroy($id){
+        $c = CierreMensual::findOrFail($id);
+        $c->delete();
+        return redirect('/cierres-mensuales')->with('success','Cierre eliminado');
     }
 }
