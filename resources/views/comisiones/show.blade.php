@@ -5,7 +5,7 @@
 <h2 style="font-weight:bold; font-size:18px; margin:0;">Detalle {{ $comision->codigo }} - {{ $comision->destino }} - {{ $comision->pasajeros->count() }} oficiales, 1 factura ${{ number_format($comision->pasajes->where('es_factura_principal',true)->unique('factura_grupo')->sum('valor') ?: $comision->total_valor_pasajes,2) }} compartida</h2>
 <p style="font-size:11px; margin:4px 0 0 0; color:#FFD700;">ARMADA DEL ECUADOR | ESNACE | Fondo Rotativo</p>
 </div>
-<a href="{{ route('comisiones.index') }}" style="background:white; color:#001f3f; padding:6px 14px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:12px;">← Volver</a>
+<div style="display:flex; gap:8px;"><a href="{{ route('comisiones.mini',$comision->id) }}" style="background:#FFD700; color:#001f3f; padding:6px 14px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:12px; border:2px solid white;">📊 KARDEX PDF</a><a href="{{ route('comisiones.index') }}" style="background:white; color:#001f3f; padding:6px 14px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:12px;">← Volver</a></div>
 </div>
 </x-slot>
 
@@ -35,6 +35,20 @@ $ganadora = $comision->cotizaciones->sortBy('valor_total')->first();
 </div>
 </div>
 </div>
+
+
+<!-- KARDEX MINI LIQUIDACION - AGREGADO SIN TOCAR LO DEMAS -->
+<div style="background:white; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1); border-left:6px solid #FFD700; border-top:3px solid #001f3f; overflow:hidden;">
+<div style="background: linear-gradient(90deg, #001f3f, #000); color:white; padding:12px 20px; display:flex; justify-content:space-between; align-items:center;">
+<span style="font-weight:bold; font-size:14px;">📊 KARDEX FONDO ROTATIVO - Mini Liquidación por Comisión</span>
+<a href="{{ route('comisiones.mini',$comision->id) }}" style="background:#FFD700; color:#001f3f; padding:6px 14px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:11px;">Ver Kardex PDF</a>
+</div>
+<div style="padding:12px 20px; font-size:12px; color:#374151; background:#fffbeb; border:1px dashed #fbbf24; margin:12px; border-radius:6px;">
+<strong>Kardex:</strong> Saldo Inicial Real $9,999.34 - Tarjeta $5.03 = $9,994.31 operativo. Esta comisión <strong>{{ $comision->codigo }}</strong> - Total REAL ${{ number_format($totalReal,2) }} único (no duplicado). 
+<a href="{{ route('comisiones.mini',$comision->id) }}" style="color:#001f3f; font-weight:bold; text-decoration:underline;">Clic aquí para ver cuanto tenía antes, cuanto gastó y cuanto le quedó disponible para la siguiente comisión - Igual que VER EXACTO del cierre mensual</a>
+</div>
+</div>
+
 
 <!-- PASAJEROS -->
 <div style="background:white; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1); border-left:6px solid #6b7280; overflow:hidden;">

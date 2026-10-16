@@ -1,0 +1,275 @@
+<?php
+namespace App\Http\Controllers;
+use App\Models\Comision; use App\Models\ControlFondo; use App\Models\CierreMensual;
+use App\Models\Pasajero; use App\Models\Pasaje; use App\Models\Cotizacion;
+use App\Models\CuadroComparativo; use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema; use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
+
+class ComisionController extends Controller
+{
+    private $repartos = ['COOPNA','CODESC','CUINMA','COAVNA','COMSUB','COMACO','COGUAR','COMCUB','COMSUP','DIGEIM','ESNACE','ESNAFA','JEM','DIBIEN','DIRNEA'];
+    
+    public function index(){ try{ $control=ControlFondo::getInstance(); }catch(\Exception $e){ $control=(object)['monto_asignado'=>10000,'saldo_disponible'=>431.55,'monto_ejecutado'=>9567.79,'porcentaje_ejecutado'=>95.68,'saldo_inicial_real'=>9999.34]; } $ultimoCierre=null; try{ if(Schema::hasTable('cierres_mensuales')){ $ultimoCierre=CierreMensual::orderBy('fecha_cierre','desc')->first(); } }catch(\Exception $e){} if($ultimoCierre){ $control->monto_asignado=10000; $control->saldo_inicial_real=$ultimoCierre->saldo_inicial_banco ?? 9999.34; $control->monto_ejecutado=$ultimoCierre->total_debitos_banco ?? 9567.79; $control->saldo_disponible=$ultimoCierre->saldo_final_banco ?? 431.55; } $comisiones=Comision::with(['pasajeros','pasajes','cotizaciones','cuadroComparativo'])->orderBy('created_at','desc')->paginate(15); return view('comisiones.index', compact('control','comisiones')); }
+    public function create(){ $repartos=$this->repartos; return view('comisiones.create', compact('repartos')); }
+    public function store(Request $request){ $request->validate(['codigo'=>'required|unique:comisiones,codigo','destino'=>'required','motivo'=>'required','tipo'=>'required|in:NACIONAL,INTERNACIONAL','fecha_salida'=>'required|date','fecha_retorno'=>'required|date']); $comision=Comision::create(['codigo'=>$request->codigo,'destino'=>$request->destino,'motivo'=>$request->motivo,'tipo'=>$request->tipo,'fecha_salida'=>$request->fecha_salida,'fecha_retorno'=>$request->fecha_retorno,'estado'=>'CREADA','estado_documental'=>'CREADA','total_valor_pasajes'=>0,'custodio_id'=>auth()->id() ?? 1,]); return redirect()->route('comisiones.show',$comision->id)->with('success','Comision creada'); }
+    public function show($id){ $comision=Comision::with(['pasajeros','pasajes.pasajero','cotizaciones','cuadroComparativo','documentos'])->findOrFail($id); return view('comisiones.show', compact('comision')); }
+    public function edit($id){ $comision=Comision::findOrFail($id); $repartos=$this->repartos; return view('comisiones.edit', compact('comision','repartos')); }
+    public function update(Request $request, $id){ Comision::findOrFail($id)->update($request->all()); return redirect()->route('comisiones.show',$id)->with('success','Actualizada'); }
+    public function destroy($id){ Comision::findOrFail($id)->delete(); return redirect()->route('comisiones.index')->with('success','Eliminada'); }
+    public function pasajeroCreate($comisionId){ $comision=Comision::findOrFail($comisionId); $repartos=$this->repartos; return view('comisiones.pasajeros.create', compact('comision','repartos')); }
+    public function pasajeroStore(Request $request, $comisionId){ $request->validate(['nombre'=>'required','cedula'=>'required','cargo'=>'required','reparto'=>'required']); Pasajero::create(['comision_id'=>$comisionId,'nombre'=>strtoupper($request->nombre),'cedula'=>$request->cedula,'cargo'=>strtoupper($request->cargo),'reparto'=>$request->reparto]); $comision=Comision::find($comisionId); if($comision->estado=='CREADA'){ $comision->estado='CON_PASAJEROS'; $comision->save(); } return redirect()->route('comisiones.show',$comisionId)->with('success','Pasajero agregado'); }
+    public function pasajeroDestroy($comisionId, $pasajeroId){ Pasajero::findOrFail($pasajeroId)->delete(); return redirect()->route('comisiones.show',$comisionId)->with('success','Pasajero eliminado'); }
+    public function cotizacionCreate($comisionId){ $comision=Comision::with('pasajeros')->findOrFail($comisionId); return view('comisiones.cotizaciones.create', compact('comision')); }
+    public function cotizacionStore(Request $request, $comisionId){ $request->validate(['nro_proforma'=>'required','ruc_proveedor'=>'required','nombre_proveedor'=>'required','valor_total'=>'required|numeric','fecha_cotizacion'=>'required|date']); $path=null; if($request->hasFile('archivo_proforma')){ $path=$request->file('archivo_proforma')->store('cotizaciones','public'); } Cotizacion::create(['comision_id'=>$comisionId,'nro_proforma'=>$request->nro_proforma,'ruc_proveedor'=>$request->ruc_proveedor,'nombre_proveedor'=>$request->nombre_proveedor,'tipo_proveedor'=>$request->tipo_proveedor ?? 'AEROLINEA','detalle_pasajes'=>$request->detalle_pasajes ?? '','valor_total'=>$request->valor_total,'fecha_cotizacion'=>$request->fecha_cotizacion,'archivo_proforma'=>$path,'registrado_por'=>auth()->id() ?? 1,]); return redirect()->route('comisiones.show',$comisionId)->with('success','Cotizacion agregada'); }
+    public function cotizacionDestroy($comisionId, $cotizacionId){ $cot=Cotizacion::findOrFail($cotizacionId); if($cot->archivo_proforma) Storage::disk('public')->delete($cot->archivo_proforma); $cot->delete(); return redirect()->route('comisiones.show',$comisionId)->with('success','Cotizacion eliminada'); }
+    
+    public function pasajeCreate($comisionId){ $comision=Comision::with(['pasajeros','cotizaciones','pasajes.pasajero'])->findOrFail($comisionId); return view('comisiones.pasajes.create', compact('comision')); }
+    
+    public function pasajeStore(Request $request, $comisionId){ 
+        $comision = Comision::with(['pasajeros','pasajes'])->findOrFail($comisionId);
+        
+        // CASO 2: Factura compartida para 2do, 3ro, N pasajero - solo pide pasajero, sin RUC/valor
+        if($request->modo == 'compartida'){
+            $request->validate([
+                'pasajero_id'=>'required',
+                'factura_existente_id'=>'required'
+            ]);
+            $facturaBase = Pasaje::findOrFail($request->factura_existente_id);
+            // Crear pasaje para el 2do pasajero usando misma factura, valor 0 para no duplicar total
+            Pasaje::create([
+                'comision_id'=>$comisionId,
+                'pasajero_id'=>$request->pasajero_id,
+                'cotizacion_id'=>$facturaBase->cotizacion_id,
+                'aerolinea'=>$facturaBase->aerolinea,
+                'ruta'=>$facturaBase->ruta,
+                'valor'=>0, // No suma al total, ya pagado en factura principal
+                'numero_factura'=>$facturaBase->numero_factura,
+                'fecha_factura'=>$facturaBase->fecha_factura,
+                'factura_path'=>$facturaBase->factura_path,
+                'factura_grupo'=>$facturaBase->factura_grupo ?? $facturaBase->id,
+                'es_factura_principal'=>false,
+                'tipo_comprobante'=>$facturaBase->tipo_comprobante,
+                'tipo_pago'=>$facturaBase->tipo_pago,
+                'proveedor'=>$facturaBase->proveedor,
+                'estado'=>'COMPRADO'
+            ]);
+            // Total sigue siendo solo de facturas principales
+            $com=Comision::find($comisionId); 
+            $com->total_valor_pasajes = $com->pasajes()->where('es_factura_principal', true)->sum('valor');
+            // Si no tiene columna, fallback a suma anterior
+            if($com->total_valor_pasajes == 0) $com->total_valor_pasajes = $com->pasajes()->where('es_factura_principal', true)->orWhereNull('es_factura_principal')->sum('valor');
+            $com->save();
+            return redirect()->route('comisiones.show',$comisionId)->with('success','Pasajero agregado a misma factura $'.number_format($facturaBase->valor,2).' - No se duplica valor'); 
+        }
+        
+        // CASO 1: Primera factura o factura nueva completa
+        $request->validate([
+            'aerolinea'=>'required',
+            'ruta'=>'required',
+            'valor'=>'required|numeric',
+            'numero_factura'=>'required',
+            'fecha_factura'=>'required|date',
+            'factura_pdf'=>'nullable|file|mimes:pdf|max:10240',
+            'pasajero_ids'=>'nullable|array'
+        ]); 
+        
+        $path = $request->factura_path ?? '';
+        if($request->hasFile('factura_pdf')){ $path = $request->file('factura_pdf')->store('facturas','public'); }
+        
+        $pasajeroIds = $request->pasajero_ids ?? ($request->pasajero_id ? [$request->pasajero_id] : []);
+        if(empty($pasajeroIds)) $pasajeroIds = $comision->pasajeros->pluck('id')->toArray();
+        
+        $grupoId = uniqid('FAC-');
+        $primerId = null;
+        
+        foreach($pasajeroIds as $idx => $pid){
+            $esPrincipal = ($idx == 0);
+            $valor = $esPrincipal ? $request->valor : 0; // Solo primer pasajero carga el valor total
+            
+            $pasaje = Pasaje::create([
+                'comision_id'=>$comisionId,
+                'pasajero_id'=>$pid,
+                'cotizacion_id'=>$request->cotizacion_id,
+                'aerolinea'=>$request->aerolinea,
+                'ruta'=>$request->ruta,
+                'valor'=>$valor,
+                'numero_factura'=>$request->numero_factura,
+                'fecha_factura'=>$request->fecha_factura,
+                'factura_path'=>$path,
+                'factura_grupo'=>$grupoId,
+                'es_factura_principal'=>$esPrincipal,
+                'tipo_comprobante'=>$request->tipo_comprobante ?? 'FACTURA_SRI',
+                'tipo_pago'=>$request->tipo_pago ?? 'TARJETA_DEBITO_BANECUADOR',
+                'proveedor'=>$request->proveedor ?? 'KIWI.COM',
+                'estado'=>'COMPRADO'
+            ]);
+            if($esPrincipal) $primerId = $pasaje->id;
+        }
+        
+        // Si es compartida, actualizar grupo al ID principal
+        if($primerId){ Pasaje::where('factura_grupo', $grupoId)->update(['factura_grupo' => $primerId]); }
+        
+        $com=Comision::find($comisionId); 
+        $com->total_valor_pasajes = $com->pasajes()->where('es_factura_principal', true)->sum('valor');
+        if($com->total_valor_pasajes == 0) $com->total_valor_pasajes = $com->pasajes()->sum('valor'); // fallback antiguas
+        if(in_array($com->estado_documental, ['CREADA','COTIZADA','CUADRO_APROBADO','CUADRO_PENDIENTE'])){ $com->estado_documental='PASAJE_COMPRADO'; }
+        $com->save(); 
+        return redirect()->route('comisiones.show',$comisionId)->with('success','Reserva agregada $'.number_format($request->valor,2).' para '.count($pasajeroIds).' oficial(es) - Valor único no duplicado'); 
+    }
+    
+    public function pasajeDestroy($comisionId, $pasajeId){ 
+        $pasaje = Pasaje::findOrFail($pasajeId);
+        // Si es principal y tiene compartidos, promover otro o borrar grupo
+        if($pasaje->es_factura_principal){
+            $compartidos = Pasaje::where('factura_grupo', $pasaje->id)->orWhere('factura_grupo', $pasaje->factura_grupo)->where('id','!=',$pasajeId)->get();
+            if($compartidos->count() > 0){
+                $nuevoPrincipal = $compartidos->first();
+                $nuevoPrincipal->valor = $pasaje->valor;
+                $nuevoPrincipal->es_factura_principal = true;
+                $nuevoPrincipal->save();
+                Pasaje::where('factura_grupo', $pasaje->factura_grupo)->where('id','!=',$nuevoPrincipal->id)->update(['factura_grupo'=>$nuevoPrincipal->id]);
+            }
+        }
+        $pasaje->delete(); 
+        $com=Comision::find($comisionId); 
+        $com->total_valor_pasajes = $com->pasajes()->where('es_factura_principal', true)->sum('valor');
+        if($com->total_valor_pasajes == 0) $com->total_valor_pasajes = $com->pasajes()->sum('valor');
+        $com->save(); 
+        return redirect()->route('comisiones.show',$comisionId)->with('success','Pasaje eliminado'); 
+    }
+    
+    public function cuadroCreate($comisionId){ $comision=Comision::with('cotizaciones')->findOrFail($comisionId); return view('comisiones.cuadro-comparativo.create', compact('comision')); }
+    public function cuadroStore(Request $request, $comisionId){ $comision=Comision::with('cotizaciones')->findOrFail($comisionId); $req=$comision->tipo=='NACIONAL'?2:3; if($comision->cotizaciones->count() < $req){ return back()->with('error','Necesita '.$req.' cotizaciones para '.$comision->tipo.'. Actual: '.$comision->cotizaciones->count()); } $ganadora=$comision->cotizaciones->sortBy('valor_total')->first(); CuadroComparativo::create(['comision_id'=>$comisionId,'estado'=>'PENDIENTE_APROBACION','cotizacion_ganadora_id'=>$ganadora->id,'codigo_verificacion'=>'ARE-'.date('Ymd').'-'.strtoupper(substr(md5(time()),0,6)),'hash_documento'=>hash('sha256',$comisionId.time()),'observaciones'=>'Ganadora: '.$ganadora->nombre_proveedor.' $'.number_format($ganadora->valor_total,2),'generado_por'=>auth()->id() ?? 1,]); $comision->estado='CUADRO_BORRADOR'; $comision->estado_documental='CUADRO_PENDIENTE'; $comision->save(); return redirect()->route('comisiones.show',$comisionId)->with('success','Cuadro generado'); }
+    public function cuadroPdf($comisionId){
+        $comision=Comision::with(['pasajeros','cotizaciones','cuadroComparativo'])->findOrFail($comisionId);
+        $cuadro=$comision->cuadroComparativo; 
+        if(!$cuadro){ return back()->with('error','No hay cuadro'); }
+        $qrBase64 = "";
+        try {
+            $url = "http://esnace.mil.ec/verificar/".$cuadro->codigo_verificacion;
+            if(class_exists("\\SimpleSoftwareIO\\QrCode\\Facades\\QrCode")){
+                $qr = \SimpleSoftwareIO\QrCode\Facades\QrCode::format('png')->size(200)->generate($url);
+                $qrBase64 = "data:image/png;base64,".base64_encode($qr);
+            }
+        } catch (\Exception $e) { $qrBase64 = ""; }
+        $pdf=Pdf::loadView('pdf.cuadro_comparativo', compact('comision','cuadro','qrBase64'))->setPaper('a4','landscape');
+        return $pdf->stream('COM-'.$comision->codigo.'_cuadro.pdf');
+    }
+
+    public function informeCreate($id){ $comision=Comision::with(['pasajes.pasajero','pasajeros'])->findOrFail($id); return view('comisiones.liquidacion.informe', compact('comision')); }
+    public function informeStore(Request $request, $id){
+        $request->validate(['informe_pdf'=>'required|file|mimes:pdf|max:10240', 'informe_fecha'=>'nullable|date', 'tipo_informe'=>'required|in:GENERAL,INDIVIDUAL']);
+        $path=$request->file('informe_pdf')->store('informes_comision','public');
+        if($request->tipo_informe == 'GENERAL'){
+            if(Schema::hasColumn('comisiones','informe_path')){
+                $c=Comision::findOrFail($id); $c->informe_path=$path; if(Schema::hasColumn('comisiones','informe_fecha')) $c->informe_fecha=$request->informe_fecha ?? now(); $c->save();
+            } else {
+                \App\Models\Documento::create(['comision_id'=>$id,'tipo'=>'INFORME_COMISION','nombre'=>'Informe General Comision '.$id,'ruta'=>$path,'fecha'=>$request->informe_fecha ?? now(),'user_id'=>auth()->id() ?? 1]);
+            }
+        } else {
+            $pasajeIds = $request->pasaje_ids ?? ($request->pasaje_id ? [$request->pasaje_id] : []);
+            foreach($pasajeIds as $pid){ $pasaje = Pasaje::find($pid); if($pasaje){ if($pasaje->informe_path) Storage::disk('public')->delete($pasaje->informe_path); $pasaje->informe_path=$path; $pasaje->informe_fecha=$request->informe_fecha ?? now(); $pasaje->save(); } }
+        }
+        return redirect()->route('comisiones.show',$id)->with('success','Informe '. $request->tipo_informe .' subido');
+    }
+    public function pasesCreate($id){ $pasaje=Pasaje::with('pasajero','comision.pasajeros','comision.pasajes')->findOrFail($id); return view('comisiones.pasajes.pases', compact('pasaje')); }
+    public function pasesStore(Request $request, $id){
+        $request->validate(['pase_ida'=>'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120','pase_retorno'=>'nullable|file|mimes:pdf,jpg,jpeg,png|max:5120','informe_pasajero'=>'nullable|file|mimes:pdf|max:10240']);
+        $pasaje=Pasaje::findOrFail($id);
+        if($request->hasFile('pase_ida')){ if($pasaje->pase_abordo_ida) Storage::disk('public')->delete($pasaje->pase_abordo_ida); $pasaje->pase_abordo_ida=$request->file('pase_ida')->store('pases_abordo','public'); }
+        if($request->hasFile('pase_retorno')){ if($pasaje->pase_abordo_retorno) Storage::disk('public')->delete($pasaje->pase_abordo_retorno); $pasaje->pase_abordo_retorno=$request->file('pase_retorno')->store('pases_abordo','public'); }
+        if($request->hasFile('informe_pasajero')){ if(isset($pasaje->informe_path) && $pasaje->informe_path) Storage::disk('public')->delete($pasaje->informe_path); $pasaje->informe_path=$request->file('informe_pasajero')->store('informes_comision','public'); }
+        $pasaje->save();
+        return redirect()->route('comisiones.show',$pasaje->comision_id)->with('success','Pases IDA/RETORNO del pasajero '.$pasaje->pasajero->nombre.' guardados');
+    }
+    public function liquidar(Request $request, $id){
+        $c=Comision::with(['pasajes','cuadroComparativo','pasajeros','documentos'])->findOrFail($id);
+        if($c->pasajes->count()==0) return back()->with('error','Sin pasajes');
+        if(!$c->cuadroComparativo || $c->cuadroComparativo->estado!='APROBADO') return back()->with('error','Cuadro no APROBADO');
+        $pasajerosSinPasaje = []; foreach($c->pasajeros as $p){ if($c->pasajes->where('pasajero_id', $p->id)->count() == 0) $pasajerosSinPasaje[] = $p->nombre; }
+        if(count($pasajerosSinPasaje) > 0) return back()->with('error','Faltan pasajes para: '.implode(', ', $pasajerosSinPasaje).' - Cada oficial necesita estar en la factura compartida');
+        $tieneInformeGeneral = false; if(Schema::hasColumn('comisiones','informe_path') && $c->informe_path) $tieneInformeGeneral = true; elseif($c->documentos()->where('tipo','INFORME_COMISION')->exists()) $tieneInformeGeneral = true;
+        $pasajesSinInforme = $c->pasajes->filter(function($p){ return empty($p->informe_path); })->count();
+        if(!$tieneInformeGeneral && $pasajesSinInforme > 0) return back()->with('error','Falta Informe: 1 GENERAL para todos o 1 por cada pasajero');
+        $sinIda = []; $sinRetorno = []; foreach($c->pasajes as $pasaje){ if(empty($pasaje->pase_abordo_ida)) $sinIda[] = $pasaje->pasajero->nombre ?? 'Pasaje '.$pasaje->id; if(empty($pasaje->pase_abordo_retorno)) $sinRetorno[] = $pasaje->pasajero->nombre ?? 'Pasaje '.$pasaje->id; }
+        if(count($sinIda) > 0) return back()->with('error','Faltan PASE IDA para: '.implode(', ', $sinIda));
+        if(count($sinRetorno) > 0) return back()->with('error','Faltan PASE RETORNO para: '.implode(', ', $sinRetorno));
+        $c->estado='LIQUIDADA'; $c->estado_documental='LIQUIDADA'; if(Schema::hasColumn('comisiones','fecha_liquidacion')) $c->fecha_liquidacion=now(); $c->save();
+        return redirect()->route('comisiones.show',$id)->with('success','COM-'.$c->codigo.' LIQUIDADA - '.$c->pasajeros->count().' oficiales, Factura única $'.number_format($c->pasajes()->where('es_factura_principal', true)->sum('valor'),2).' (no duplicada) con pases IDA/RETORNO por pasajero');
+    }
+
+
+    // ================= KARDEX POR COMISION - PDF - NO TOCA LO DEMAS =================
+    public function miniLiquidacion($id){
+        $comision = Comision::with(['pasajeros','pasajes.pasajero','cotizaciones'])->findOrFail($id);
+        // Saldo inicial real BanEcuador
+        $saldoInicialReal = 9999.34;
+        $tarjeta = 5.03;
+        $saldoOperativo = $saldoInicialReal - $tarjeta;
+
+        // Historico ordenado por fecha para kardex - solo comisiones con pasajes con valor real
+        $historicoComisiones = Comision::withCount('pasajes')
+            ->with(['pasajes' => function($q){ $q->where('es_factura_principal', true); }])
+            ->orderBy('created_at','asc')
+            ->get();
+
+        // Calcular saldo ANTES de esta comisión
+        $saldoAntes = $saldoOperativo;
+        $acumuladoAntes = 0;
+        $saldoAntesFecha = '06/09/2026';
+        foreach($historicoComisiones as $hist){
+            if($hist->id == $comision->id) break;
+            // Solo suma valor principal, no duplicado
+            $valorHist = $hist->pasajes->where('es_factura_principal', true)->sum('valor');
+            if($valorHist==0) $valorHist = $hist->total_valor_pasajes; // fallback
+            $saldoAntes -= $valorHist;
+            $acumuladoAntes += $valorHist;
+            $saldoAntesFecha = $hist->created_at ? $hist->created_at->format('d/m/Y') : '06/10/2026';
+        }
+
+        // Esta comisión - solo principal
+        $totalComision = $comision->pasajes->where('es_factura_principal', true)->sum('valor');
+        if($totalComision==0) $totalComision = $comision->total_valor_pasajes;
+
+        $saldoDespues = $saldoAntes - $totalComision;
+        $acumuladoGastado = $acumuladoAntes + $totalComision + $tarjeta;
+
+        // Ultimo cierre para datos exactos
+        $ultimoCierre = null;
+        try{ if(Schema::hasTable('cierres_mensuales')){ $ultimoCierre = CierreMensual::orderBy('fecha_cierre','desc')->first(); } }catch(\Exception $e){}
+
+        return view('comisiones.mini_liquidacion', compact('comision','saldoAntes','saldoDespues','totalComision','acumuladoGastado','historicoComisiones','saldoAntesFecha','saldoInicialReal','tarjeta','saldoOperativo','ultimoCierre'));
+    }
+
+    public function miniLiquidacionPdf($id){
+        $comision = Comision::with(['pasajeros','pasajes.pasajero','cotizaciones'])->findOrFail($id);
+        $saldoInicialReal = 9999.34;
+        $tarjeta = 5.03;
+        $saldoOperativo = $saldoInicialReal - $tarjeta;
+        $historicoComisiones = Comision::withCount('pasajes')
+            ->with(['pasajes' => function($q){ $q->where('es_factura_principal', true); }])
+            ->orderBy('created_at','asc')
+            ->get();
+        $saldoAntes = $saldoOperativo;
+        $acumuladoAntes = 0;
+        $saldoAntesFecha = '06/09/2026';
+        foreach($historicoComisiones as $hist){
+            if($hist->id == $comision->id) break;
+            $valorHist = $hist->pasajes->where('es_factura_principal', true)->sum('valor');
+            if($valorHist==0) $valorHist = $hist->total_valor_pasajes;
+            $saldoAntes -= $valorHist;
+            $acumuladoAntes += $valorHist;
+            $saldoAntesFecha = $hist->created_at ? $hist->created_at->format('d/m/Y') : '06/10/2026';
+        }
+        $totalComision = $comision->pasajes->where('es_factura_principal', true)->sum('valor');
+        if($totalComision==0) $totalComision = $comision->total_valor_pasajes;
+        $saldoDespues = $saldoAntes - $totalComision;
+        $acumuladoGastado = $acumuladoAntes + $totalComision + $tarjeta;
+        $ultimoCierre = null;
+        try{ if(Schema::hasTable('cierres_mensuales')){ $ultimoCierre = CierreMensual::orderBy('fecha_cierre','desc')->first(); } }catch(\Exception $e){}
+
+        $pdf = Pdf::loadView('comisiones.mini_liquidacion', compact('comision','saldoAntes','saldoDespues','totalComision','acumuladoGastado','historicoComisiones','saldoAntesFecha','saldoInicialReal','tarjeta','saldoOperativo','ultimoCierre'))->setPaper('a4','landscape');
+        return $pdf->stream('Kardex_'.$comision->codigo.'_SaldoAntes_'.number_format($saldoAntes,2).'_Gasto_'.number_format($totalComision,2).'_SaldoDespues_'.number_format($saldoDespues,2).'.pdf');
+    }
+}

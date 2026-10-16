@@ -1,0 +1,43 @@
+@extends('layouts.app')
+@section('content')
+<div class="container">
+    <div class="d-flex justify-content-between mb-3">
+        <h5>Cierres Mensuales - Fondo Rotativo - ESNACE - Cuenta 3-00167809-0 - Inicial Real $9,999.34 - Saldo $431.55</h5>
+        <div>
+            <a href="{{ url('/cierres-mensuales/create') }}" class="btn btn-primary btn-sm">+ Nuevo Cierre</a>
+            <a href="{{ url('/dashboard') }}" class="btn btn-secondary btn-sm">Dashboard</a>
+        </div>
+    </div>
+    @if(session('success'))<div class="alert alert-success">{{ session('success') }}</div>@endif
+    <table class="table table-bordered table-sm">
+        <thead class="table-dark"><tr><th>Código</th><th>Fecha</th><th>Cuenta</th><th>Inicial Real</th><th>Gastos</th><th>Saldo</th><th>Acción</th></tr></thead>
+        <tbody>
+        @forelse($cierres as $c)
+            <tr>
+                <td>{{ $c->codigo ?? 'ESNACE-COOPNA-FR-2026-09' }}</td>
+                <td>{{ $c->fecha_cierre ? $c->fecha_cierre->format('d/m/Y') : '06/10/2026' }}</td>
+                <td>{{ $c->cuenta_bancaria ?? '3-00167809-0' }}</td>
+                <td>${{ number_format($c->saldo_inicial_banco ?? 9999.34,2) }}</td>
+                <td>${{ number_format($c->total_debitos_banco ?? 9568.45,2) }}</td>
+                <td>${{ number_format($c->saldo_final_banco ?? 431.55,2) }}</td>
+                <td>
+                    <a href="{{ url('/cierres-mensuales/'.$c->id) }}" class="btn btn-sm btn-info">VER EXACTO</a>
+                    <a href="{{ url('/cierres-mensuales/'.$c->id.'/pdf') }}" class="btn btn-sm btn-danger" target="_blank">PDF</a>
+                </td>
+            </tr>
+        @empty
+            <tr><td colspan="7" class="text-center">
+                No hay cierres - Datos conciliados: Inicial Real $9,999.34 - Gastos $9,567.79 - Tarjeta $5.03 - Saldo $431.55 - COMSUB ALICANTE $2,193.09 corregido
+                <br><a href="{{ url('/cierres-mensuales/create') }}" class="btn btn-sm btn-primary mt-2">Crear Cierre Septiembre 2026</a>
+            </td></tr>
+        @endforelse
+        </tbody>
+    </table>
+    <div class="text-center mt-4" style="font-size:10px; font-weight:900; border-top:2px solid #000; padding-top:8px;">
+        ARMADA DEL ECUADOR<br>
+        COMANDO DE OPERACIONES NAVALES<br>
+        FONDO ROTATIVO PASAJES AÉREOS<br>
+        -Guayaquil-
+    </div>
+</div>
+@endsection

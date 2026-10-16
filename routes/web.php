@@ -35,6 +35,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/pasajes/{id}/pases', [ComisionController::class, 'pasesCreate'])->name('pasajes.pases.create');
     Route::post('/pasajes/{id}/pases', [ComisionController::class, 'pasesStore'])->name('pasajes.pases.store');
     Route::post('/comisiones/{id}/liquidar', [ComisionController::class, 'liquidar'])->name('comisiones.liquidar');
+    Route::get('/comisiones/{id}/mini-liquidacion', [ComisionController::class, 'miniLiquidacion'])->name('comisiones.mini');
+    Route::get('/comisiones/{id}/mini-liquidacion/pdf', [ComisionController::class, 'miniLiquidacionPdf'])->name('comisiones.mini.pdf');
     Route::get('/cierres-mensuales', [CierreMensualController::class, 'index'])->name('cierres.index');
     Route::post('/cierres-mensuales', [CierreMensualController::class, 'store'])->name('cierres.store');
     Route::get('/cierres-mensuales/{id}', [CierreMensualController::class, 'show'])->name('cierres.show');

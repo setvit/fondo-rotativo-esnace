@@ -1,0 +1,105 @@
+@extends('layouts.app')
+@section('content')
+<div class="container-fluid">
+    <div class="d-flex justify-content-between mb-2">
+        <h5>Cierre Mensual {{ $cierre->codigo ?? $cierre->id }} - {{ $cierre->fecha_cierre ? $cierre->fecha_cierre->format('m/Y') : '' }} | Cuenta: {{ $cierre->cuenta_bancaria ?? '3-00167809-0' }} | Saldo: ${{ number_format($cierre->saldo_final_banco ?? 431.55,2) }}</h5>
+        <div>
+            <a href="{{ route('cierres.pdf',$cierre->id) }}" class="btn btn-sm btn-danger" target="_blank">PDF Oficial</a>
+            <a href="{{ route('cierres.index') }}" class="btn btn-sm btn-secondary">Volver</a>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header bg-dark text-white">1. ESTADO DE CUENTA BANECUADOR B.P. - {{ $cierre->num_transacciones ?? 7 }} TRANSACCIONES</div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-bordered mb-0" style="font-size:10px;">
+                <thead class="table-light">
+                    <tr><th>FECHA</th><th>DESCRIPCION</th><th>REFERENCIA</th><th>DEBITO</th><th>S. CONTABLE</th><th>S. DISPONIBLE</th></tr>
+                </thead>
+                <tbody>
+                    <tr class="table-secondary">
+                        <td colspan="3"><strong>Saldo Inicial Real {{ $cierre->fecha_cierre ? $cierre->fecha_cierre->copy()->subMonth()->format('d/m/Y') : '01/09/2026' }} - Cuenta {{ $cierre->cuenta_bancaria ?? '3-00167809' }}-0:</strong></td>
+                        <td></td>
+                        <td class="text-end fw-bold">${{ number_format($cierre->saldo_inicial_banco ?? 9999.34,2) }}</td>
+                        <td class="text-end fw-bold">${{ number_format($cierre->saldo_inicial_banco ?? 9999.34,2) }}</td>
+                    </tr>
+                    @php $saldo = $cierre->saldo_inicial_banco ?? 9999.34; @endphp
+                    @foreach(($cierre->detalle_transacciones ?? []) as $t)
+                        @php
+                            // CORREGIDO - Soporta cualquier clave que tenga
+                            $fecha = $t['fecha'] ?? $t['fecha_transaccion'] ?? $t['date'] ?? now();
+                            $desc = $t['descripcion'] ?? $t['desc'] ?? $t['detalle'] ?? $t['concepto'] ?? $t['descripcion_banco'] ?? 'Transacción';
+                            $ref = $t['referencia'] ?? $t['ref'] ?? $t['referencia_banco'] ?? $t['numero_referencia'] ?? '';
+                            $debito = $t['debito'] ?? $t['valor'] ?? $t['monto'] ?? 0;
+                            $saldo -= $debito;
+                        @endphp
+                        <tr>
+                            <td>{{ is_string($fecha) ? date('d/m/Y',strtotime($fecha)) : $fecha->format('d/m/Y') }}</td>
+                            <td>{{ $desc }}</td>
+                            <td>{{ $ref }}</td>
+                            <td class="text-end">${{ number_format($debito,2) }}</td>
+                            <td class="text-end">${{ number_format($saldo,2) }}</td>
+                            <td class="text-end">${{ number_format($saldo,2) }}</td>
+                        </tr>
+                    @endforeach
+                    <tr class="table-dark text-white">
+                        <td colspan="3" class="text-end fw-bold">TOTALES - {{ $cierre->num_transacciones ?? count($cierre->detalle_transacciones ?? []) }} TRANSACCIONES:</td>
+                        <td class="text-end fw-bold">${{ number_format($cierre->total_debitos_banco ?? 9568.45,2) }}</td>
+                        <td></td><td></td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="p-2" style="font-size:10px; background:#f2f2f2; border:1px solid #000; margin:5px;">
+                <strong>BanEcuador:</strong> {{ $cierre->observaciones ?? 'Inicial Real $9,999.34 - $5.03 tarjeta - $2,193.09 COMSUB ALICANTE - $318.55 LIQUIDADA - $5,438.70 BUSAN pasaje - $350 BUSAN tasas - $777.78 LIMA - $485.30 LIQUIDADA = $431.55 saldo final. Total transacciones 7. Total gastos $9,567.79 sin IVA desglosado. Todos los valores tienen IVA incluido. Tarjeta costó $5.03. COMSUB ALICANTE corregido.' }}
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-3">
+                <div class="card-header bg-dark text-white">2. COMISIONES LIQUIDADAS CON PASES</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm table-bordered mb-0" style="font-size:10px;">
+                        <thead><tr><th>CÓDIGO</th><th>VALOR</th><th>REF BANECUADOR</th></tr></thead>
+                        <tbody>
+                            @forelse($liquidadas ?? [] as $liq)
+                                <tr><td>{{ $liq->codigo }}</td><td class="text-end">${{ number_format($liq->total_valor_pasajes,2) }}</td><td>{{ $liq->referencia_bancaria ?? '' }}</td></tr>
+                            @empty
+                                <tr><td>COM-20260930144832 GYE-UIO-GYE</td><td class="text-end">$485.30</td><td>466884295 - 30/09</td></tr>
+                                <tr><td>COM-20260923182516 GYE-UIO-GYE CAPELO STALIN - COMSUB</td><td class="text-end">$318.55</td><td>442201661 - 24/09</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card mb-3">
+                <div class="card-header bg-dark text-white">3. COMISIONES POR LIQUIDAR SIN PASES</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm table-bordered mb-0" style="font-size:10px;">
+                        <thead><tr><th>CÓDIGO</th><th>TOTAL</th><th>REF</th></tr></thead>
+                        <tbody>
+                            @forelse($porLiquidar ?? [] as $p)
+                                <tr><td>{{ $p->codigo }} {{ $p->destino }}</td><td class="text-end">${{ number_format($p->total_valor_pasajes,2) }}</td><td></td></tr>
+                            @empty
+                                <tr><td>COM-20260929175110 LIMA</td><td class="text-end">$777.78</td><td>458666437</td></tr>
+                                <tr><td>COM-20260925151104 BUSAN - 2 PAX CODESC $5,438.70 + $350 = $5,788.70</td><td class="text-end">$5,788.70</td><td>447404188 + 449284260</td></tr>
+                                <tr><td>COM-20260921140224 COMSUB ALICANTE ESPAÑA - CPCB-SS Coba Loor</td><td class="text-end">$2,193.09</td><td>427278449</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-center mt-4" style="font-size:12px; font-weight:900;">
+        ARMADA DEL ECUADOR<br>
+        COMANDO DE OPERACIONES NAVALES<br>
+        FONDO ROTATIVO PASAJES AÉREOS<br>
+        -Guayaquil-
+    </div>
+</div>
+@endsection

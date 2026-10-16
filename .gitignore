@@ -1,12 +1,17 @@
 /vendor
 /node_modules
+/public/storage
+/storage/*.key
+[STRIPPED 88 bytes]
 .env
 .env.backup
-storage/logs/*
-storage/framework/cache/data/*
-storage/framework/sessions/*
-storage/framework/views/*
-storage/app/private/*
-*.log
+.env.production
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
 .DS_Store
-var
+Thumbs.db
+*.log
+/docs/cierres/*.pdf

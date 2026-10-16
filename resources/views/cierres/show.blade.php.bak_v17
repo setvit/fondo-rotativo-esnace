@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Ver Exacto Cierre</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif; font-size:11px; margin:0; padding:15px; background:#fff; color:#000;}
+.header{text-align:center; border-bottom:3px solid #000; padding-bottom:8px; margin-bottom:10px;}
+.header h1{font-size:13px; margin:0; font-weight:900;}
+.btn{padding:5px 10px; border:1px solid #000; text-decoration:none; background:#000; color:#fff; font-size:10px; font-weight:900; margin:2px;}
+.table{width:100%; border-collapse:collapse; margin:8px 0;}
+.table th{border:1px solid #000; background:#d9d9d9; padding:4px; font-size:10px; font-weight:900;}
+.table td{border:1px solid #000; padding:4px; font-size:9px;}
+.text-right{text-align:right;}
+.bg-gray{background:#f2f2f2;}
+.bg-dark{background:#000; color:#fff;}
+.card{border:2px solid #000; margin-bottom:12px;}
+.card-header{background:#000; color:#fff; padding:6px; font-weight:900; font-size:11px;}
+.card-body{padding:8px;}
+.footer{text-align:center; border-top:3px solid #000; margin-top:20px; padding-top:10px; font-weight:900; font-size:11px;}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>ARMADA DEL ECUADOR - COMANDO DE OPERACIONES NAVALES</h1>
+    <h1>FONDO ROTATIVO PASAJES AÉREOS - VER EXACTO CIERRE</h1>
+    <p>Código: {{ $cierre->codigo ?? 'ESNACE-COOPNA-FR-2026-09' }} | Fecha: {{ $cierre->fecha_cierre ? $cierre->fecha_cierre->format('d/m/Y') : '06/10/2026' }} | Cuenta: {{ $cierre->cuenta_bancaria ?? '3-00167809-0' }} | Saldo: ${{ number_format($cierre->saldo_final_banco ?? 431.55,2) }}</p>
+</div>
+
+<div style="margin-bottom:10px;">
+    <a href="/cierres-mensuales/{{ $cierre->id }}/pdf" class="btn" target="_blank">PDF OFICIAL</a>
+    <a href="/cierres-mensuales" class="btn" style="background:#fff; color:#000;">Volver</a>
+</div>
+
+<div class="card">
+    <div class="card-header">1. ESTADO DE CUENTA BANECUADOR B.P. - {{ $cierre->num_transacciones ?? 7 }} TRANSACCIONES</div>
+    <div class="card-body" style="padding:0;">
+        <table class="table" style="margin:0;">
+            <thead>
+                <tr><th>FECHA</th><th>DESCRIPCION</th><th>REFERENCIA</th><th>DEBITO</th><th>S. CONTABLE</th><th>S. DISPONIBLE</th></tr>
+            </thead>
+            <tbody>
+                <tr class="bg-gray"><td colspan="3"><strong>Saldo Inicial Real {{ $cierre->fecha_cierre ? $cierre->fecha_cierre->copy()->subMonth()->format('d/m/Y') : '01/09/2026' }} - Cuenta {{ $cierre->cuenta_bancaria ?? '3-00167809' }}-0:</strong></td><td></td><td class="text-right" style="font-weight:900;">${{ number_format($cierre->saldo_inicial_banco ?? 9999.34,2) }}</td><td class="text-right" style="font-weight:900;">${{ number_format($cierre->saldo_inicial_banco ?? 9999.34,2) }}</td></tr>
+                @php $saldo = $cierre->saldo_inicial_banco ?? 9999.34; @endphp
+                @foreach(($cierre->detalle_transacciones ?? []) as $t)
+                    @php
+                        $fecha = $t['fecha'] ?? $t['fecha_transaccion'] ?? date('Y-m-d');
+                        $desc = $t['descripcion'] ?? $t['desc'] ?? $t['detalle'] ?? $t['concepto'] ?? $t['descripcion_banco'] ?? 'Transacción';
+                        $ref = $t['referencia'] ?? $t['ref'] ?? '';
+                        $debito = $t['debito'] ?? $t['valor'] ?? $t['monto'] ?? 0;
+                        $saldo -= $debito;
+                    @endphp
+                    <tr><td>{{ date('d/m/Y',strtotime($fecha)) }}</td><td>{{ $desc }}</td><td>{{ $ref }}</td><td class="text-right">${{ number_format($debito,2) }}</td><td class="text-right">${{ number_format($saldo,2) }}</td><td class="text-right">${{ number_format($saldo,2) }}</td></tr>
+                @endforeach
+                <tr class="bg-dark"><td colspan="3" style="text-align:right; font-weight:900;">TOTALES - {{ $cierre->num_transacciones ?? 7 }} TRANSACCIONES:</td><td style="text-align:right; font-weight:900;">${{ number_format($cierre->total_debitos_banco ?? 9568.45,2) }}</td><td></td><td></td></tr>
+            </tbody>
+        </table>
+        <div style="background:#f2f2f2; border:1px solid #000; padding:6px; font-size:9px; font-weight:700; margin:5px;">
+            BanEcuador: $9,999.34 inicial real - $5.03 tarjeta - $2,193.09 COMSUB ALICANTE - $318.55 LIQUIDADA - $5,438.70 BUSAN pasaje - $350 BUSAN tasas - $777.78 LIMA - $485.30 LIQUIDADA = $431.55 saldo final. Total transacciones 7. Total gastos $9,567.79 sin IVA desglosado. Todos los valores tienen IVA incluido. Tarjeta costó $5.03. COMSUB ALICANTE corregido.
+        </div>
+    </div>
+</div>
+
+<div class="footer">
+    ARMADA DEL ECUADOR<br>
+    COMANDO DE OPERACIONES NAVALES<br>
+    FONDO ROTATIVO PASAJES AÉREOS<br>
+    -Guayaquil-
+</div>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<?php
+namespace App\Http\Controllers;
+use App\Models\CierreMensual;
+use App\Models\Comision;
+use App\Models\Pasaje;
+use Illuminate\Support\Facades\Schema;
+use Carbon\Carbon;
+
+class CierreMensualController extends Controller
+{
+    public function index(){ $cierres = CierreMensual::orderBy('fecha_cierre','desc')->paginate(15); return view('cierres.index', compact('cierres')); }
+
+    public function show($id)
+    {
+        $cierre = CierreMensual::findOrFail($id);
+        $montoAsignado = 10000.00;
+        $tarjetaTotal = 5.03; $tarjetaBase = 4.37; $tarjetaIva = 0.66;
+
+        $fechaCierre = Carbon::create(2026,9,30);
+        $fechaElaboracion = Carbon::create(2026,10,6);
+
+        // Mapeo exacto BanEcuador -> Comision (del PDF que subiste)
+        // Referencia BanEcuador => [descripcion comision, valor]
+        $mapeoBanEcuador = [
+            '367724757' => ['desc' => 'COMISION EMISION TARJETA DE DEBITO', 'fecha' => '07/09/2026', 'valor' => 4.37, 'iva' => 0.66, 'saldo' => 9994.97],
+            '427278449' => ['desc' => 'COMSUB ALICANTE - PREAUTORIZACION INTERNACIONAL MA', 'fecha' => '21/09/2026', 'valor' => 2193.09],
+            '442201661' => ['desc' => 'COMISION GUAYAQUIL-QUITO-GUAYAQUIL - CONSUMO NACIONAL MASTERCARD', 'fecha' => '24/09/2026', 'valor' => 318.55],
+            '447404188' => ['desc' => 'BUSAN - CONSUMO INTERNACIONAL MASTERCARD - PASAJE', 'fecha' => '25/09/2026', 'valor' => 5438.70],
+            '449284260' => ['desc' => 'BUSAN - CONSUMO NACIONAL MASTERCARD - TASAS', 'fecha' => '28/09/2026', 'valor' => 350.00],
+            '458666437' => ['desc' => 'LIMA - CONSUMO NACIONAL MASTERCARD', 'fecha' => '29/09/2026', 'valor' => 777.78],
+            '466884295' => ['desc' => 'COM-20261008190741 GUAYAQUIL-QUITO-GUAYAQUIL 1 PAX FACTURA COMPARTIDA - CONSUMO NACIONAL MASTERCARD', 'fecha' => '30/09/2026', 'valor' => 485.30],
+        ];
+
+        // Intentar enriquecer con datos reales de comisiones
+        $comisionesReales = collect();
+        try {
+            if (Schema::hasTable('comisiones')) {
+                $comisionesReales = Comision::with(['pasajes' => function($q){ $q->where('es_factura_principal', true); }, 'pasajeros'])->orderBy('created_at','asc')->get();
+            }
+        } catch (\Exception $e) {}
+
+        $kardex = [];
+        $saldo = $montoAsignado;
+
+        $kardex[] = ['fecha'=>'01/09/2026','descripcion'=>'Saldo Inicial - Fondo Rotativo $10,000.00 - Cuenta 3-00167809-0 FR-ESTACION NAVAL CENTRO','ref'=>'','debito'=>0,'s_contable'=>$saldo,'s_disponible'=>$saldo,'es_inicial'=>true];
+
+        $totalGeneral = 0;
+        foreach ($mapeoBanEcuador as $ref => $data) {
+            $debito = $data['valor'];
+            $esTarjeta = ($ref == '367724757');
+            if ($esTarjeta) {
+                // BanEcuador debita 4.37 pero saldo refleja 5.03 con IVA
+                $debitoRealSaldo = $tarjetaTotal; // 5.03
+                $saldo -= $debitoRealSaldo;
+                $totalGeneral += $debitoRealSaldo;
+                $descripcion = 'COMISION EMISION TARJETA DE DEBITO N/D 367724757 - Base $4.37 + IVA $0.66 = $5.03 - '.$data['desc'];
+            } else {
+                $saldo -= $debito;
+                $totalGeneral += $debito;
+                // Enriquecer con comision real si existe por valor
+                $comisionMatch = $comisionesReales->first(function($c) use ($debito){
+                    $v = $c->pasajes->where('es_factura_principal', true)->sum('valor');
+                    if ($v == 0) $v = $c->total_valor_pasajes;
+                    return abs($v - $debito) < 0.01;
+                });
+                if ($comisionMatch) {
+                    $descComision = $comisionMatch->codigo.' - '.$comisionMatch->destino.' - '.$comisionMatch->tipo.' - '.$comisionMatch->pasajeros->count().' of.';
+                    $descripcion = $descComision.' - N/D CTA.CTE. CONSUMO NACIONAL MASTERCARD N/D '.$ref.' - '.$data['desc'];
+                } else {
+                    $descripcion = 'N/D CTA.CTE. '.$data['desc'].' N/D '.$ref;
+                }
+            }
+
+            $kardex[] = [
+                'fecha'=>$data['fecha'],
+                'descripcion'=>$descripcion,
+                'ref'=>$ref,
+                'debito'=> $esTarjeta ? $tarjetaTotal : $debito,
+                'debito_base'=> $esTarjeta ? $tarjetaBase : $debito,
+                'iva'=> $esTarjeta ? $tarjetaIva : 0,
+                's_contable'=>$saldo,
+                's_disponible'=>$saldo,
+                'es_inicial'=>false,
+            ];
+        }
+
+        $saldoFinal = $saldo; // 431.55
+
+        return view('cierres.show', compact('cierre','kardex','montoAsignado','tarjetaTotal','tarjetaBase','tarjetaIva','totalGeneral','saldoFinal','fechaCierre','fechaElaboracion','mapeoBanEcuador'));
+    }
+
+    public function pdf($id){ return $this->show($id); }
+    public function store(Request $request){ $request->validate(['codigo'=>'required','fecha_cierre'=>'required|date']); $cierre = CierreMensual::create($request->all()); return redirect()->route('cierres.show',$cierre->id)->with('success','Cierre creado'); }
+}

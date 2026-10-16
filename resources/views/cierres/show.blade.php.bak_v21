@@ -1,0 +1,65 @@
+<x-app-layout>
+@php
+    $montoAsignado = $montoAsignado ?? 10000.00;
+    $tarjetaTotal = $tarjetaTotal ?? 5.03;
+    $fechaCierre = $fechaCierre ?? \Carbon\Carbon::create(2026,9,30);
+    $fechaElaboracion = $fechaElaboracion ?? \Carbon\Carbon::create(2026,10,6);
+@endphp
+<div style="padding:10px; font-family:monospace, Arial, sans-serif; font-size:11px;">
+<h2 style="text-align:center; font-weight:bold; margin:0; font-family:Arial;">ARMADA DEL ECUADOR - COMANDO DE OPERACIONES NAVALES<br>FONDO ROTATIVO PASAJES AÉREOS - VER EXACTO CIERRE</h2>
+<p style="text-align:center; font-size:11px; margin-top:6px; font-family:Arial;">
+Código: {{ $cierre->codigo ?? 'ESNACE-COOPNA-FR-2026-09' }} | 
+Fecha Cierre: {{ $fechaCierre->format('d/m/Y') }} | 
+Fecha Elaboración: {{ $fechaElaboracion->format('d/m/Y') }} | 
+Cuenta: 3-00167809-0 - 7 trans ${{ number_format($totalGeneral,2) }} | Saldo: ${{ number_format($saldoFinal,2) }}
+</p>
+
+<div style="margin:12px 0; font-family:Arial;">
+<a href="{{ route('cierres.pdf',$cierre->id) }}" style="background:#000; color:white; padding:6px 12px; text-decoration:none; font-weight:bold;">PDF OFICIAL</a>
+<a href="{{ route('cierres.index') }}" style="border:1px solid #000; padding:5px 12px; text-decoration:none; color:#000; margin-left:5px;">Volver</a>
+</div>
+
+<div style="background:#000; color:white; padding:6px; font-weight:bold; font-size:12px; font-family:Arial;">1. ESTADO DE CUENTA BANECUADOR B.P. - 7 TRANSACCIONES</div>
+<table style="width:100%; border-collapse:collapse; border:1px solid #000; font-size:10px;">
+<thead>
+<tr style="background:#ccc; font-weight:bold; font-family:Arial;">
+<th style="border:1px solid #000; padding:5px; width:10%;">FECHA</th>
+<th style="border:1px solid #000; padding:5px; width:48%;">DESCRIPCION</th>
+<th style="border:1px solid #000; padding:5px; width:14%;">REFERENCIA/CHEQUE</th>
+<th style="border:1px solid #000; padding:5px; width:8%;">DEBITO</th>
+<th style="border:1px solid #000; padding:5px; width:6%;">MONTO IVA</th>
+<th style="border:1px solid #000; padding:5px; width:7%;">S. CONTABLE</th>
+<th style="border:1px solid #000; padding:5px; width:7%;">S. DISPONIBLE</th>
+</tr>
+</thead>
+<tbody>
+@foreach($kardex as $k)
+<tr style="{{ $k['es_inicial'] ? 'font-weight:bold; background:#f0f0f0;' : '' }}">
+<td style="border:1px solid #000; padding:4px;">{{ $k['fecha'] }}</td>
+<td style="border:1px solid #000; padding:4px; white-space:pre-wrap;">{{ $k['descripcion'] }}</td>
+<td style="border:1px solid #000; padding:4px;">{{ $k['ref'] }}</td>
+<td style="border:1px solid #000; padding:4px; text-align:right;">{{ $k['debito'] > 0 ? '$'.number_format($k['debito_base'] ?? $k['debito'],2) : '' }}</td>
+<td style="border:1px solid #000; padding:4px; text-align:right;">{{ ($k['iva'] ?? 0) > 0 ? '$'.number_format($k['iva'],2) : '0.00' }}</td>
+<td style="border:1px solid #000; padding:4px; text-align:right;">${{ number_format($k['s_contable'],2) }}</td>
+<td style="border:1px solid #000; padding:4px; text-align:right;">${{ number_format($k['s_disponible'],2) }}</td>
+</tr>
+@endforeach
+<tr style="background:#000; color:white; font-weight:bold;">
+<td colspan="3" style="padding:5px; text-align:right;">TOTAL DE TRANSACCIONES: 7 - TOTALES: </td>
+<td style="padding:5px; text-align:right;">${{ number_format($totalGeneral - ($tarjetaIva ?? 0.66),2) }}</td>
+<td style="padding:5px; text-align:right;">${{ number_format($tarjetaIva ?? 0.66,2) }}</td>
+<td style="padding:5px; text-align:right;">${{ number_format($saldoFinal,2) }}</td>
+<td style="padding:5px; text-align:right;">${{ number_format($saldoFinal,2) }}</td>
+</tr>
+</tbody>
+</table>
+
+<div style="text-align:center; margin-top:40px; font-weight:bold; font-size:11px; line-height:1.4; font-family:Arial;">
+ARMADA DEL ECUADOR<br>
+COMANDO DE OPERACIONES NAVALES<br>
+FONDO ROTATIVO PASAJES AÉREOS<br>
+-Guayaquil-<br>
+<span style="font-weight:normal; font-size:10px;">Fecha Cierre: {{ $fechaCierre->format('d/m/Y') }} | Fecha Elaboración: {{ $fechaElaboracion->format('d/m/Y') }} | Saldo Final: ${{ number_format($saldoFinal,2) }}</span>
+</div>
+</div>
+</x-app-layout>
